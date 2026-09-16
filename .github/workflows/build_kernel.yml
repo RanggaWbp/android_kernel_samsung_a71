@@ -48,11 +48,10 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
-            git gnupg gperf libxml2 libxml2-utils lz4 zlib1g-dev libncurses5 \
-            libssl-dev python3 python2 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            libtinfo5 zip unzip
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache curl flex git gnupg gperf \
+            libxml2 libxml2-utils lz4 zlib1g-dev libncurses5 libssl-dev \
+            python3 python2 libtinfo5 zip unzip binutils-aarch64-linux-gnu
 
       - name: Setup Proton-Clang Toolchain
         run: |
@@ -93,15 +92,15 @@ jobs:
           git clone https://github.com/osm0sis/AnyKernel3.git package_ak3
           cd package_ak3
           
-          # Konfigurasi properti AnyKernel3
+          # Konfigurasi parameter AnyKernel3 untuk platform Snapdragon 730G
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
           sed -i 's/BLOCK=.*/BLOCK=\/dev\/block\/bootdevice\/by-name\/boot;/g' anykernel.sh
           sed -i 's/IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=0;/g' anykernel.sh
           
-          # Masukkan kernel binary ke dalam paket
+          # Ambil kernel Image.gz-dtb hasil build
           cp ../out/arch/arm64/boot/Image.gz-dtb ./Image.gz-dtb
           
-          # Buat ZIP dengan nama unik
+          # Buat flashable zip dengan nama unik
           zip -r9 "../${{ steps.meta.outputs.zip_name }}" * -x .git README.md *placeholder
           cd ..
           ls -lh "${{ steps.meta.outputs.zip_name }}"
