@@ -1,0 +1,114 @@
+name: Build ReSukiSU Kernel (A71 / M51)
+
+on:
+  workflow_dispatch:
+    inputs:
+      device_target:
+        description: 'Pilih target device untuk dibuild'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - a71
+          - m51
+  push:
+    branches:
+      - lineage-23.2
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+
+jobs:
+  build:
+    name: Build Kernel for ${{ matrix.device }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: a71
+            defconfig: a71_defconfig
+          - device: m51
+            defconfig: m51_defconfig
+
+    steps:
+      - name: Filter Target Device
+        if: ${{ github.event.inputs.device_target != 'all' && github.event.inputs.device_target != matrix.device && github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "Skipping build for ${{ matrix.device }} based on user input."
+          exit 0
+
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
+            git gnupg gperf libxml2 libxml2-utils lz4 zlib1g-dev libncurses5 \
+            libssl-dev python3 python2 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            libtinfo5 zip unzip
+
+      - name: Setup Proton-Clang Toolchain
+        run: |
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git "$GITHUB_WORKSPACE/proton-clang"
+
+      - name: Generate Build Metadata
+        id: meta
+        run: |
+          BUILD_DATE=$(date +'%Y%m%d-%H%M%S')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          DEVICE_UPPER=$(echo "${{ matrix.device }}" | tr '[:lower:]' '[:upper:]')
+          ZIP_NAME="ReSukiSU-Kernel-${DEVICE_UPPER}-${BUILD_DATE}-${SHORT_SHA}.zip"
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "zip_name=${ZIP_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Compile Kernel
+        run: |
+          export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
+          mkdir -p out
+          
+          # 1. Defconfig
+          make O=out ARCH=arm64 \
+               HOSTCC=/usr/bin/gcc HOSTCXX=/usr/bin/g++ HOSTLD=/usr/bin/ld \
+               ${{ matrix.defconfig }}
+          
+          # 2. Build Image.gz-dtb
+          make O=out ARCH=arm64 \
+               CC=clang \
+               HOSTCC=/usr/bin/gcc HOSTCXX=/usr/bin/g++ HOSTLD=/usr/bin/ld \
+               CROSS_COMPILE=aarch64-linux-gnu- \
+               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+               CLANG_TRIPLE=aarch64-linux-gnu- \
+               -j$(nproc --all)
+
+      - name: Package with AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git package_ak3
+          cd package_ak3
+          
+          # Konfigurasi properti AnyKernel3
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
+          sed -i 's/BLOCK=.*/BLOCK=\/dev\/block\/bootdevice\/by-name\/boot;/g' anykernel.sh
+          sed -i 's/IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=0;/g' anykernel.sh
+          
+          # Masukkan kernel binary ke dalam paket
+          cp ../out/arch/arm64/boot/Image.gz-dtb ./Image.gz-dtb
+          
+          # Buat ZIP dengan nama unik
+          zip -r9 "../${{ steps.meta.outputs.zip_name }}" * -x .git README.md *placeholder
+          cd ..
+          ls -lh "${{ steps.meta.outputs.zip_name }}"
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.zip_name }}
+          path: ${{ steps.meta.outputs.zip_name }}
+          retention-days: 14
