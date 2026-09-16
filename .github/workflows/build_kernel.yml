@@ -1,184 +1,179 @@
-name: Build & Release ReSukiSU Kernel (A71 / M51)
+name: Build and Release ReSukiSU Kernel
 
 on:
-workflow_dispatch:
-inputs:
-device_target:
-description: 'Pilih target device untuk dibuild'
-required: true
-default: 'all'
-type: choice
-options:
-- all
-- a71
-- m51
-push:
-branches:
-- lineage-23.2
-paths-ignore:
-- 'README.md'
-- '.gitignore'
+  workflow_dispatch:
+    inputs:
+      device_target:
+        description: Pilih target device untuk dibuild
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - a71
+          - m51
+  push:
+    branches:
+      - lineage-23.2
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
 
 permissions:
-contents: write
+  contents: write
 
 jobs:
-build:
-name: Build Kernel for ${{ matrix.device }}
-runs-on: ubuntu-22.04
-strategy:
-fail-fast: false
-matrix:
-include:
-- device: a71
-device_name: "Galaxy A71"
-defconfig: a71_defconfig
-- device: m51
-device_name: "Galaxy M51"
-defconfig: m51_defconfig
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: a71
+            device_model: Galaxy-A71
+            defconfig: a71_defconfig
+          - device: m51
+            device_model: Galaxy-M51
+            defconfig: m51_defconfig
 
-steps:
-- name: Filter Target Device
-if: ${{ github.event.inputs.device_target != 'all' && github.event.inputs.device_target != matrix.device && github.event_name == 'workflow_dispatch' }}
-run: |
-echo "Skipping build for ${{ matrix.device }} based on user selection."
-exit 0
+    steps:
+      - name: Filter Target Device
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.device_target != 'all' && github.event.inputs.device_target != matrix.device
+        run: |
+          echo "Skipping build for ${{ matrix.device }}"
+          exit 0
 
-- name: Checkout Kernel Source
-uses: actions/checkout@v4
-with:
-submodules: recursive
-fetch-depth: 1
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
 
-- name: Install Build Dependencies
-run: |
-sudo apt-get update
-sudo apt-get install -y --no-install-recommends \
-bc bison build-essential ccache curl flex git gnupg gperf \
-libxml2 libxml2-utils lz4 zlib1g-dev libncurses5 libssl-dev \
-python3 python2 libtinfo5 zip unzip binutils-aarch64-linux-gnu tzdata
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache curl flex git gnupg gperf \
+            libxml2 libxml2-utils lz4 zlib1g-dev libncurses5 libssl-dev \
+            python3 python2 libtinfo5 zip unzip binutils-aarch64-linux-gnu tzdata
 
-- name: Setup Proton-Clang Toolchain
-run: |
-git clone --depth=1 https://github.com/kdrag0n/proton-clang.git "$GITHUB_WORKSPACE/proton-clang"
+      - name: Setup Proton-Clang Toolchain
+        run: |
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git "$GITHUB_WORKSPACE/proton-clang"
 
-- name: Generate Build Metadata (Format Indonesia / WIB)
-id: meta
-run: |
-export TZ="Asia/Jakarta"
-TGL_INDO=$(date +'%d-%m-%Y')
-JAM_INDO=$(date +'%H.%M')
-SHORT_SHA=$(git rev-parse --short HEAD)
-DEVICE_CODE=$(echo "${{ matrix.device }}" | tr '[:lower:]' '[:upper:]')
+      - name: Generate Build Metadata
+        id: meta
+        run: |
+          export TZ='Asia/Jakarta'
+          TGL_INDO=$(date +'%d-%m-%Y')
+          JAM_INDO=$(date +'%H.%M')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          DEVICE_UPPER=$(echo "${{ matrix.device }}" | tr '[:lower:]' '[:upper:]')
+          
+          ZIP_NAME="ReSukiSU-Kernel-${DEVICE_UPPER}-${TGL_INDO}-${JAM_INDO}-WIB-${SHORT_SHA}.zip"
+          TAG_NAME="v4.2.0-${DEVICE_UPPER}-${TGL_INDO}-${SHORT_SHA}"
+          
+          echo "tgl_indo=${TGL_INDO}" >> $GITHUB_OUTPUT
+          echo "jam_indo=${JAM_INDO}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "zip_name=${ZIP_NAME}" >> $GITHUB_OUTPUT
+          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
 
-# Penamaan unik: ReSukiSU-Kernel-A71-16-09-2026-13.45-WIB-8af7bef.zip
-ZIP_NAME="ReSukiSU-Kernel-${DEVICE_CODE}-${TGL_INDO}-${JAM_INDO}-WIB-${SHORT_SHA}.zip"
-TAG_NAME="v4.2.0-${DEVICE_CODE}-${TGL_INDO}-${SHORT_SHA}"
+      - name: Compile Kernel
+        run: |
+          export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
+          mkdir -p out
+          
+          # 1. Generate Defconfig
+          make O=out ARCH=arm64 \
+               HOSTCC=/usr/bin/gcc HOSTCXX=/usr/bin/g++ HOSTLD=/usr/bin/ld \
+               ${{ matrix.defconfig }}
+          
+          # 2. Build Image.gz-dtb
+          make O=out ARCH=arm64 \
+               CC=clang \
+               HOSTCC=/usr/bin/gcc HOSTCXX=/usr/bin/g++ HOSTLD=/usr/bin/ld \
+               CROSS_COMPILE=aarch64-linux-gnu- \
+               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+               CLANG_TRIPLE=aarch64-linux-gnu- \
+               -j$(nproc --all)
 
-echo "tgl_indo=${TGL_INDO}" >> $GITHUB_OUTPUT
-echo "jam_indo=${JAM_INDO}" >> $GITHUB_OUTPUT
-echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-echo "zip_name=${ZIP_NAME}" >> $GITHUB_OUTPUT
-echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
-
-- name: Compile Kernel
-run: |
-export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
-mkdir -p out
-
-# 1. Generate Defconfig
-make O=out ARCH=arm64 \
-HOSTCC=/usr/bin/gcc HOSTCXX=/usr/bin/g++ HOSTLD=/usr/bin/ld \
-${{ matrix.defconfig }}
-
-# 2. Compile Kernel Image
-make O=out ARCH=arm64 \
-CC=clang \
-HOSTCC=/usr/bin/gcc HOSTCXX=/usr/bin/g++ HOSTLD=/usr/bin/ld \
-CROSS_COMPILE=aarch64-linux-gnu- \
-CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-CLANG_TRIPLE=aarch64-linux-gnu- \
--j$(nproc --all)
-
-- name: Package with AnyKernel3 (Pure Samsung SM7150 Setup)
-run: |
-# Siapkan working directory bersih untuk paket zip
-mkdir -p "$GITHUB_WORKSPACE/ak3_build"
-git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$GITHUB_WORKSPACE/ak3_build"
-cd "$GITHUB_WORKSPACE/ak3_build"
-
-# Tulis ulang anykernel.sh secara presisi tanpa sisa template tuna/omap
-cat > anykernel.sh << 'EOF_AK3'
+      - name: Package with AnyKernel3
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/ak3_build"
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$GITHUB_WORKSPACE/ak3_build"
+          cd "$GITHUB_WORKSPACE/ak3_build"
+          
+          # Buat anykernel.sh bersih khusus Samsung Galaxy A71 dan M51
+          cat > anykernel.sh << 'EOF_AK3'
 ### AnyKernel3 Setup for Samsung Galaxy SM7150
 ## Modified for ReSukiSU by RanggaWbp
 
 properties() { '
-kernel.string=${{ matrix.device_name }}Custom Kernel Support ReSukiSU by RanggaWbp Menerima Pembuatan Kernel WA: 085806047666 
+kernel.string=Custom Kernel Samsung A71 And M51 Support ReSukiSU by RanggaWbp Menerima Pembuatan Kernel WA: 085806047666
 do.devicecheck=1
 do.modules=0
 do.systemless=1
 do.cleanup=1
 do.cleanuponabort=0
-device.name1=${{ matrix.device }}
-device.name2=${{ matrix.device }}q
-device.name3=sm7150
-device.name4=
-device.name5=
+device.name1=a71
+device.name2=a71q
+device.name3=m51
+device.name4=m51q
+device.name5=sm7150
 supported.versions=10 - 16
 supported.patchlevels=
 supported.vendorpatchlevels=
 '; }
 
-# Boot Shell Variables
 block=/dev/block/bootdevice/by-name/boot;
 is_slot_device=0;
 ramdisk_compression=auto;
 patch_vbmeta_flag=auto;
 
-# Core Functions Setup (DO NOT REMOVE)
 . tools/ak3-core.sh;
 
-# Boot Install (Kernel + DTB Injected cleanly)
 split_boot;
 flash_boot;
 flash_dtbo;
-## end install
 EOF_AK3
 
-# Salin kernel binary ke folder packaging
-cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz-dtb" ./Image.gz-dtb
+          # Sisipkan kernel binary Image.gz-dtb
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz-dtb" ./Image.gz-dtb
+          
+          # Buat file flashable zip
+          zip -r9 "$GITHUB_WORKSPACE/${{ steps.meta.outputs.zip_name }}" * -x .git README.md *placeholder
+          cd "$GITHUB_WORKSPACE"
+          ls -lh "${{ steps.meta.outputs.zip_name }}"
 
-# Buat ZIP flashable bersih (tanpa nested folder / zip dobel)
-zip -r9 "$GITHUB_WORKSPACE/${{ steps.meta.outputs.zip_name }}" * -x .git README.md *placeholder
-cd "$GITHUB_WORKSPACE"
-ls -lh "${{ steps.meta.outputs.zip_name }}"
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.zip_name }}
+          path: ${{ steps.meta.outputs.zip_name }}
+          retention-days: 14
 
-- name: Upload Kernel Artifact
-uses: actions/upload-artifact@v4
-with:
-name: ${{ steps.meta.outputs.zip_name }}
-path: ${{ steps.meta.outputs.zip_name }}
-retention-days: 14
-
-- name: Publish to GitHub Releases
-uses: softprops/action-gh-release@v2
-with:
-tag_name: ${{ steps.meta.outputs.tag_name }}
-name: "ReSukiSU Kernel ${{ matrix.device_name }} [${{ steps.meta.outputs.tgl_indo }}]"
-body: |
-### ReSukiSU Kernel Automated Build
-* **Target Device:** ${{ matrix.device_name }} (`${{ matrix.device }}`)
-* **Kernel Version:** Linux 4.14 (Non-GKI SM7150)
-* **ReSukiSU:** v4.2.0 (Integrated via Submodule + Manual Hooks)
-* **Tanggal Rilis:** ${{ steps.meta.outputs.tgl_indo }} (${{ steps.meta.outputs.jam_indo }} WIB)
-* **Commit:** `${{ steps.meta.outputs.short_sha }}`
-
-#### Cara Flash:
-1. Masuk ke TWRP / OrangeFox Recovery.
-2. Flash file `${{ steps.meta.outputs.zip_name }}` tanpa wipe data.
-3. Reboot ke sistem dan pasang aplikasi ReSukiSU / KernelSU Manager.
-files: ${{ steps.meta.outputs.zip_name }}
-draft: false
-prerelease: false
-env:
-GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: ReSukiSU Kernel ${{ matrix.device_model }} [${{ steps.meta.outputs.tgl_indo }}]
+          body: |
+            ### Custom Kernel ReSukiSU Build
+            * **Device Target:** ${{ matrix.device_model }} (`${{ matrix.device }}`)
+            * **Platform:** Qualcomm Snapdragon 730G (SM7150 Non-GKI)
+            * **Kernel:** Linux 4.14
+            * **Root Support:** ReSukiSU v4.2.0 (Manual Hooks)
+            * **Tanggal Rilis:** ${{ steps.meta.outputs.tgl_indo }} (${{ steps.meta.outputs.jam_indo }} WIB)
+            * **Commit:** `${{ steps.meta.outputs.short_sha }}`
+            
+            #### Catatan Instalasi:
+            1. Masuk ke TWRP atau OrangeFox Recovery.
+            2. Flash file zip tanpa perlu wipe data.
+            3. Reboot ke sistem dan pasang aplikasi ReSukiSU / KernelSU Manager.
+          files: ${{ steps.meta.outputs.zip_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
