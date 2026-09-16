@@ -85,12 +85,10 @@ jobs:
           export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
           mkdir -p out
           
-          # 1. Generate Defconfig
           make O=out ARCH=arm64 \
                HOSTCC=/usr/bin/gcc HOSTCXX=/usr/bin/g++ HOSTLD=/usr/bin/ld \
                ${{ matrix.defconfig }}
           
-          # 2. Build Image.gz-dtb
           make O=out ARCH=arm64 \
                CC=clang \
                HOSTCC=/usr/bin/gcc HOSTCXX=/usr/bin/g++ HOSTLD=/usr/bin/ld \
@@ -103,46 +101,11 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/ak3_build"
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$GITHUB_WORKSPACE/ak3_build"
+          
+          cp "$GITHUB_WORKSPACE/build_tools/anykernel.sh" "$GITHUB_WORKSPACE/ak3_build/anykernel.sh"
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz-dtb" "$GITHUB_WORKSPACE/ak3_build/Image.gz-dtb"
+          
           cd "$GITHUB_WORKSPACE/ak3_build"
-          
-          # Buat anykernel.sh bersih khusus Samsung Galaxy A71 dan M51
-          cat > anykernel.sh << 'EOF_AK3'
-### AnyKernel3 Setup for Samsung Galaxy SM7150
-## Modified for ReSukiSU by RanggaWbp
-
-properties() { '
-kernel.string=Custom Kernel Samsung A71 And M51 Support ReSukiSU by RanggaWbp Menerima Pembuatan Kernel WA: 085806047666
-do.devicecheck=1
-do.modules=0
-do.systemless=1
-do.cleanup=1
-do.cleanuponabort=0
-device.name1=a71
-device.name2=a71q
-device.name3=m51
-device.name4=m51q
-device.name5=sm7150
-supported.versions=10 - 16
-supported.patchlevels=
-supported.vendorpatchlevels=
-'; }
-
-block=/dev/block/bootdevice/by-name/boot;
-is_slot_device=0;
-ramdisk_compression=auto;
-patch_vbmeta_flag=auto;
-
-. tools/ak3-core.sh;
-
-split_boot;
-flash_boot;
-flash_dtbo;
-EOF_AK3
-
-          # Sisipkan kernel binary Image.gz-dtb
-          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz-dtb" ./Image.gz-dtb
-          
-          # Buat file flashable zip
           zip -r9 "$GITHUB_WORKSPACE/${{ steps.meta.outputs.zip_name }}" * -x .git README.md *placeholder
           cd "$GITHUB_WORKSPACE"
           ls -lh "${{ steps.meta.outputs.zip_name }}"
@@ -161,16 +124,16 @@ EOF_AK3
           name: ReSukiSU Kernel ${{ matrix.device_model }} [${{ steps.meta.outputs.tgl_indo }}]
           body: |
             ### Custom Kernel ReSukiSU Build
-            * **Device Target:** ${{ matrix.device_model }} (`${{ matrix.device }}`)
-            * **Platform:** Qualcomm Snapdragon 730G (SM7150 Non-GKI)
-            * **Kernel:** Linux 4.14
-            * **Root Support:** ReSukiSU v4.2.0 (Manual Hooks)
-            * **Tanggal Rilis:** ${{ steps.meta.outputs.tgl_indo }} (${{ steps.meta.outputs.jam_indo }} WIB)
-            * **Commit:** `${{ steps.meta.outputs.short_sha }}`
+            * Target Device: ${{ matrix.device_model }} (${{ matrix.device }})
+            * Platform: Qualcomm Snapdragon 730G (SM7150 Non-GKI)
+            * Kernel: Linux 4.14
+            * Root Support: ReSukiSU v4.2.0 (Manual Hooks)
+            * Tanggal Rilis: ${{ steps.meta.outputs.tgl_indo }} (${{ steps.meta.outputs.jam_indo }} WIB)
+            * Commit: ${{ steps.meta.outputs.short_sha }}
             
             #### Catatan Instalasi:
             1. Masuk ke TWRP atau OrangeFox Recovery.
-            2. Flash file zip tanpa perlu wipe data.
+            2. Flash file zip tanpa wipe data.
             3. Reboot ke sistem dan pasang aplikasi ReSukiSU / KernelSU Manager.
           files: ${{ steps.meta.outputs.zip_name }}
           draft: false
