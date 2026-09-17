@@ -97,13 +97,16 @@ jobs:
                CLANG_TRIPLE=aarch64-linux-gnu- \
                -j$(nproc --all)
 
-      - name: Package with AnyKernel3
+      - name: Package with AnyKernel3 (Boot Header v2 Format)
         run: |
           mkdir -p "$GITHUB_WORKSPACE/ak3_build"
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$GITHUB_WORKSPACE/ak3_build"
           
           cp "$GITHUB_WORKSPACE/build_tools/anykernel.sh" "$GITHUB_WORKSPACE/ak3_build/anykernel.sh"
-          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz-dtb" "$GITHUB_WORKSPACE/ak3_build/Image.gz-dtb"
+          
+          # Salin Image murni dan dtb terpisah sesuai Boot Header v2
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" "$GITHUB_WORKSPACE/ak3_build/Image"
+          cp "$GITHUB_WORKSPACE/out/arch/arm64/boot/dts/qcom/sdmmagpie.dtb" "$GITHUB_WORKSPACE/ak3_build/dtb"
           
           cd "$GITHUB_WORKSPACE/ak3_build"
           zip -r9 "$GITHUB_WORKSPACE/${{ steps.meta.outputs.zip_name }}" * -x .git README.md *placeholder
@@ -123,18 +126,14 @@ jobs:
           tag_name: ${{ steps.meta.outputs.tag_name }}
           name: ReSukiSU Kernel ${{ matrix.device_model }} [${{ steps.meta.outputs.tgl_indo }}]
           body: |
-            ### Custom Kernel ReSukiSU Build
-            * Target Device: ${{ matrix.device_model }} (${{ matrix.device }})
-            * Platform: Qualcomm Snapdragon 730G (SM7150 Non-GKI)
-            * Kernel: Linux 4.14
-            * Root Support: ReSukiSU v4.2.0 (Manual Hooks)
-            * Tanggal Rilis: ${{ steps.meta.outputs.tgl_indo }} (${{ steps.meta.outputs.jam_indo }} WIB)
-            * Commit: ${{ steps.meta.outputs.short_sha }}
-            
-            #### Catatan Instalasi:
-            1. Masuk ke TWRP atau OrangeFox Recovery.
-            2. Flash file zip tanpa wipe data.
-            3. Reboot ke sistem dan pasang aplikasi ReSukiSU / KernelSU Manager.
+            ### Custom Kernel ReSukiSU Build (Boot Header v2)
+            * **Device Target:** ${{ matrix.device_model }} (`${{ matrix.device }}`)
+            * **Platform:** Qualcomm Snapdragon 730G (SM7150)
+            * **Kernel Image:** Uncompressed `Image` + Dedicated `dtb`
+            * **Compatibility:** Dynamic eBPF Legacy Patch & Dual-Mode (OneUI / AOSP)
+            * **Root Support:** ReSukiSU v4.2.0 (Manual Hooks)
+            * **Tanggal Rilis:** ${{ steps.meta.outputs.tgl_indo }} (${{ steps.meta.outputs.jam_indo }} WIB)
+            * **Commit:** `${{ steps.meta.outputs.short_sha }}`
           files: ${{ steps.meta.outputs.zip_name }}
           draft: false
           prerelease: false
