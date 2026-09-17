@@ -18,13 +18,22 @@ supported.patchlevels=
 supported.vendorpatchlevels=
 '; }
 
-block=/dev/block/bootdevice/by-name/boot;
+# Deteksi otomatis partisi boot Samsung SM7150
+BLOCK=auto;
+[ -e /dev/block/by-name/boot ] && BLOCK=/dev/block/by-name/boot;
+[ -e /dev/block/bootdevice/by-name/boot ] && BLOCK=/dev/block/bootdevice/by-name/boot;
+block=$BLOCK;
+
+IS_SLOT_DEVICE=0;
 is_slot_device=0;
+RAMDISK_COMPRESSION=auto;
 ramdisk_compression=auto;
+PATCH_VBMETA_FLAG=auto;
 patch_vbmeta_flag=auto;
 
+# Import library inti AnyKernel3
 . tools/ak3-core.sh;
 
-split_boot;
-flash_boot;
-flash_dtbo;
+# Inisialisasi, injeksi kernel Image.gz-dtb, dan penulisan partisi boot
+dump_boot;
+write_boot;
